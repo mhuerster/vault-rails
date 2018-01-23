@@ -27,6 +27,11 @@ module Vault
     DEV_WARNING = "[vault-rails] Using in-memory cipher - this is not secure " \
       "and should never be used in production-like environments!".freeze
 
+    VAULT_CONVERGENT_ENCRYPTION_CONTEXT = Base64.strict_encode64(
+      ENV.fetch('VAULT_CONVERGENT_ENCRYPTION_CONTEXT', 'default-context')
+    ).freeze
+
+
     class << self
       # API client object based off the configured options in {Configurable}.
       #
@@ -69,10 +74,12 @@ module Vault
       #   the plaintext to encrypt
       # @param [Vault::Client] client
       #   the Vault client to use
+      # @param [Bool] convergent
+      #   should use convergent encryption?
       #
       # @return [String]
       #   the encrypted cipher text
-      def encrypt(path, key, plaintext, client = self.client)
+      def encrypt(path, key, plaintext, client = self.client, convergent = false)
         if plaintext.blank?
           return plaintext
         end
@@ -82,7 +89,7 @@ module Vault
 
         with_retries do
           if self.enabled?
-            result = self.vault_encrypt(path, key, plaintext, client)
+            result = self.vault_encrypt(path, key, plaintext, client, convergent)
           else
             result = self.memory_encrypt(path, key, plaintext, client)
           end
@@ -168,13 +175,23 @@ module Vault
 
       # Perform encryption using Vault. This will raise exceptions if Vault is
       # unavailable.
-      def vault_encrypt(path, key, plaintext, client)
+      def vault_encrypt(path, key, plaintext, client, convergent = false)
         return nil if plaintext.nil?
 
         route  = File.join(path, "encrypt", key)
-        secret = client.logical.write(route,
+        opts = {
           plaintext: Base64.strict_encode64(plaintext),
-        )
+        }
+
+        if convergent
+          opts.merge!(
+            context: VAULT_CONVERGENT_ENCRYPTION_CONTEXT,
+            convergent_encryption: true,
+            derived: true
+          )
+        end
+
+        secret = client.logical.write(route, opts)
         return secret.data[:ciphertext]
       end
 
@@ -184,7 +201,11 @@ module Vault
         return nil if ciphertext.nil?
 
         route  = File.join(path, "decrypt", key)
-        secret = client.logical.write(route, ciphertext: ciphertext)
+        secret = client.logical.write(
+          route,
+          ciphertext: ciphertext,
+          context: VAULT_CONVERGENT_ENCRYPTION_CONTEXT
+        )
         return Base64.strict_decode64(secret.data[:plaintext])
       end
 
