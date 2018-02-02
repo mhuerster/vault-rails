@@ -356,6 +356,22 @@ describe Vault::Rails do
     end
   end
 
+  context "with convergent encryption enabled" do
+    before(:all) do
+      Vault::Rails.logical.write("transit/keys/dummy_people_favorite_color")
+    end
+
+    it "always generates the same ciphertext given the same plaintext" do
+      first_person = Person.create!(first_pet: "Rover")
+      second_person = Person.create!(first_pet: "Rover")
+
+      first_person.reload
+      second_person.reload
+
+      expect(first_person.first_pet_encrypted).to eq(second_person.first_pet_encrypted)
+    end
+  end
+
   context 'with errors' do
     it 'raises the appropriate exception' do
       expect {
