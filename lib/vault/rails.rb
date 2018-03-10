@@ -91,7 +91,7 @@ module Vault
           if self.enabled?
             result = self.vault_encrypt(path, key, plaintext, client, convergent)
           else
-            result = self.memory_encrypt(path, key, plaintext, client)
+            result = self.memory_encrypt(path, key, plaintext, client, convergent)
           end
 
           return self.force_encoding(result)
@@ -150,7 +150,7 @@ module Vault
       protected
 
       # Perform in-memory encryption. This is useful for testing and development.
-      def memory_encrypt(path, key, plaintext, client)
+      def memory_encrypt(path, key, plaintext, client, convergent = false)
         log_warning(DEV_WARNING) if self.in_memory_warnings_enabled?
 
         return nil if plaintext.nil?
@@ -158,6 +158,11 @@ module Vault
         cipher = OpenSSL::Cipher::AES.new(128, :CBC)
         cipher.encrypt
         cipher.key = memory_key_for(path, key)
+
+        if convergent
+          cipher.iv = VAULT_CONVERGENT_ENCRYPTION_CONTEXT
+        end
+
         return Base64.strict_encode64(cipher.update(plaintext) + cipher.final)
       end
 
@@ -170,7 +175,18 @@ module Vault
         cipher = OpenSSL::Cipher::AES.new(128, :CBC)
         cipher.decrypt
         cipher.key = memory_key_for(path, key)
-        return cipher.update(Base64.strict_decode64(ciphertext)) + cipher.final
+
+        begin
+          # attempt to decrypt without initialization vectory
+          # will fail if value was encrypted with convergent option
+          cipher.update(Base64.strict_decode64(ciphertext)) + cipher.final
+        rescue OpenSSL::Cipher::CipherError
+          # decrypt with initialization vector
+          # will succeed if value was encrypted with convergent option
+          cipher.iv = VAULT_CONVERGENT_ENCRYPTION_CONTEXT
+          cipher.update(Base64.strict_decode64(ciphertext)) + cipher.final
+        end
+
       end
 
       # Perform encryption using Vault. This will raise exceptions if Vault is

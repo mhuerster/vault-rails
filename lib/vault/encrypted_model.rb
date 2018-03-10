@@ -243,7 +243,7 @@ module Vault
 
       # Encrypt a single attribute using Vault and persist back onto the
       # encrypted attribute value.
-      def __vault_persist_attribute!(attribute, options, convergent = false)
+      def __vault_persist_attribute!(attribute, options)
         key        = options[:key]
         path       = options[:path]
         serializer = options[:serializer]
